@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: enroll-orderers
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fabric-ca-client
+          image: hyperledger/fabric-ca:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              echo "===> 📥 Enroll orderer nodes"
+              ORDERERS="orderer orderer2 orderer3 orderer4 orderer5"
+              ORG_DIR=/organizations/ordererOrganizations/example.com
+
+              for ord in $ORDERERS; do
+                echo "🔹 Enrolling $ord"
+                ORDERER_DIR=$ORG_DIR/orderers/$ord.example.com
+                TLS_DIR=$ORDERER_DIR/tls
+
+                echo "📁 Xoá folder cũ (nếu có)"
+                rm -rf $TLS_DIR $ORDERER_DIR/msp
+
+                mkdir -p $TLS_DIR
+                export FABRIC_CA_CLIENT_HOME=$ORDERER_DIR
+
+                echo "🔐 Enroll MSP"
+                fabric-ca-client enroll \
+                  -u https://$ord:ordererpw@ca-orderer:10054 \
+                  --caname ca-orderer \
+                  -M $ORDERER_DIR/msp \
+                  --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem
+
+                if [ -f $ORG_DIR/msp/config.yaml ]; then
+                  cp $ORG_DIR/msp/config.yaml $ORDERER_DIR/msp/config.yaml
+                fi
+
+                echo "🔐 Enroll TLS"
+                fabric-ca-client enroll \
+                  -u https://$ord:ordererpw@ca-orderer:10054 \
+                  --caname ca-orderer \
+                  -M $TLS_DIR \
+                  --enrollment.profile tls \
+                  --csr.hosts $ord.example.com \
+                  --csr.hosts localhost \
+                  --csr.hosts ca-orderer \
+                  --csr.hosts $ord \
+                  --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem
+
+                echo "📦 Copy TLS certs"
+                cp $TLS_DIR/tlscacerts/*.pem $TLS_DIR/ca.crt
+                cp $TLS_DIR/signcerts/*.pem $TLS_DIR/server.crt
+                cp $(ls $TLS_DIR/keystore/* | head -n 1) $TLS_DIR/server.key
+
+                echo "📂 Copy to MSP and Org-level tlscacerts"
+                mkdir -p $ORDERER_DIR/msp/tlscacerts
+                cp $TLS_DIR/ca.crt $ORDERER_DIR/msp/tlscacerts/tlsca.example.com-cert.pem
+
+                mkdir -p $ORG_DIR/msp/tlscacerts
+                cp $TLS_DIR/ca.crt $ORG_DIR/msp/tlscacerts/tlsca.example.com-cert.pem
+
+                echo "✅ $ord enrolled successfully"
+              done
+
+              echo "✅ All orderers enrolled successfully"
+          volumeMounts:
+            - name: orgdata
+              mountPath: /organizations
+              subPath: organizations
+      volumes:
+        - name: orgdata
+          persistentVolumeClaim:
+            claimName: nfs-pvc

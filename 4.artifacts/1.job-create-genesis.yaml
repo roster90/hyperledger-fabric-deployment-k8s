@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-genesis-block
+spec:
+  template:
+    spec:
+      containers:
+        - name: genesis-generator
+          image: hyperledger/fabric-tools:2.3
+          workingDir: /
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "📦 Generating system genesis block"
+
+              export FABRIC_CFG_PATH=${PWD}/configtx
+
+              configtxgen -profile TwoOrgsOrdererGenesis \
+                -channelID system-channel \
+                -outputBlock ./system-genesis-block/genesis.block
+
+              echo "✅ Genesis block generated at ./system-genesis-block/genesis.block"
+          volumeMounts:
+            - mountPath: /organizations
+              name: fabricfiles
+              subPath: organizations
+            - mountPath: /configtx
+              name: fabricfiles
+              subPath: configtx
+            - mountPath: /system-genesis-block
+              name: fabricfiles
+              subPath: system-genesis-block
+      restartPolicy: Never
+      volumes:
+        - name: fabricfiles
+          persistentVolumeClaim:
+            claimName: nfs-pvc

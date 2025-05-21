@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: enroll-orderer-admin
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: fabricfiles
+          persistentVolumeClaim:
+            claimName: nfs-pvc
+      containers:
+        - name: enroll-admin
+          image: hyperledger/fabric-ca-tools:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "===> Bước 1: Enroll Admin để lấy MSP"
+
+              mkdir -p /organizations/ordererOrganizations/example.com/admin
+              export FABRIC_CA_CLIENT_HOME=/organizations/ordererOrganizations/example.com/admin
+
+              fabric-ca-client enroll \
+                -u https://admin:adminpw@ca-orderer:10054 \
+                --caname ca-orderer \
+                --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem
+
+              mkdir -p /organizations/ordererOrganizations/example.com/msp
+
+              printf "%s\n" \
+              "NodeOUs:" \
+              "  Enable: true" \
+              "  ClientOUIdentifier:" \
+              "    Certificate: cacerts/ca-orderer-10054-ca-orderer.pem" \
+              "    OrganizationalUnitIdentifier: client" \
+              "  PeerOUIdentifier:" \
+              "    Certificate: cacerts/ca-orderer-10054-ca-orderer.pem" \
+              "    OrganizationalUnitIdentifier: peer" \
+              "  AdminOUIdentifier:" \
+              "    Certificate: cacerts/ca-orderer-10054-ca-orderer.pem" \
+              "    OrganizationalUnitIdentifier: admin" \
+              "  OrdererOUIdentifier:" \
+              "    Certificate: cacerts/ca-orderer-10054-ca-orderer.pem" \
+              "    OrganizationalUnitIdentifier: orderer" \
+              > /organizations/ordererOrganizations/example.com/msp/config.yaml
+          volumeMounts:
+            - mountPath: /organizations
+              name: fabricfiles
+              subPath: organizations

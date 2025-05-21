@@ -1,0 +1,15 @@
+apiVersion : v1
+kind : PersistentVolume
+metadata :
+  name : nfs-pv
+spec :
+  capacity :
+    storage : 10Gi
+  accessModes :
+    - ReadWriteOnce
+  volumeMode : Filesystem  
+  nfs :
+    path : /mnt/nfs_share
+    server : 143.198.24.143
+  storageClassName : standard
+---

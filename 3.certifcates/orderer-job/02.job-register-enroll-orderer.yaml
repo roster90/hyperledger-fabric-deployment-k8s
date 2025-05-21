@@ -1,0 +1,95 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: enroll-register-orderer-admin
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fabric-ca-client
+          image: hyperledger/fabric-ca:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "===> 📥 Enroll lại Admin để đảm bảo quyền register"
+
+              ORG_DIR=/organizations/ordererOrganizations/example.com
+              ADMIN_DIR=$ORG_DIR/admin
+              mkdir -p "$ADMIN_DIR"
+              export FABRIC_CA_CLIENT_HOME=$ADMIN_DIR
+
+              # Enroll admin để lấy chứng chỉ
+              fabric-ca-client enroll \
+                -u https://admin:adminpw@ca-orderer:10054 \
+                --caname ca-orderer \
+                --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem
+
+              echo "===> Ghi config.yaml cho NodeOUs"
+              mkdir -p $ORG_DIR/msp
+              cat <<EOF > $ORG_DIR/msp/config.yaml
+              NodeOUs:
+                Enable: true
+                ClientOUIdentifier:
+                  Certificate: cacerts/ca-orderer-10054-ca-orderer.pem
+                  OrganizationalUnitIdentifier: client
+                PeerOUIdentifier:
+                  Certificate: cacerts/ca-orderer-10054-ca-orderer.pem
+                  OrganizationalUnitIdentifier: peer
+                AdminOUIdentifier:
+                  Certificate: cacerts/ca-orderer-10054-ca-orderer.pem
+                  OrganizationalUnitIdentifier: admin
+                OrdererOUIdentifier:
+                  Certificate: cacerts/ca-orderer-10054-ca-orderer.pem
+                  OrganizationalUnitIdentifier: orderer
+              EOF
+
+              echo "===> 🔐 Đăng ký các orderer nodes"
+              ORDERERS="orderer orderer2 orderer3 orderer4 orderer5"
+
+              for ord in $ORDERERS; do
+                echo "🔹 Đăng ký $ord"
+                fabric-ca-client register --caname ca-orderer \
+                  --id.name $ord \
+                  --id.secret ordererpw \
+                  --id.type orderer \
+                  --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem || \
+                  echo "⚠️  $ord đã được đăng ký từ trước"
+              done
+
+              echo "🔹 Đăng ký ordererAdmin"
+              fabric-ca-client register --caname ca-orderer \
+                --id.name ordererAdmin \
+                --id.secret ordererAdminpw \
+                --id.type admin \
+                --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem || \
+                echo "⚠️  ordererAdmin đã được đăng ký từ trước"
+
+              echo "===> 📥 Enroll ordererAdmin"
+              ORDERER_ADMIN_DIR=$ORG_DIR/users/Admin@example.com
+              mkdir -p "$ORDERER_ADMIN_DIR"
+              export FABRIC_CA_CLIENT_HOME=$ORDERER_ADMIN_DIR
+
+              fabric-ca-client enroll \
+                -u https://ordererAdmin:ordererAdminpw@ca-orderer:10054 \
+                --caname ca-orderer \
+                -M $ORDERER_ADMIN_DIR/msp \
+                --tls.certfiles /organizations/fabric-ca/ordererOrg/tls-cert.pem
+
+              cp $ORG_DIR/msp/config.yaml $ORDERER_ADMIN_DIR/msp/config.yaml
+
+              echo "===> 🛠 Copy cacerts vào msp/cacerts"
+              mkdir -p $ORG_DIR/msp/cacerts
+              cp $ORDERER_ADMIN_DIR/msp/cacerts/* $ORG_DIR/msp/cacerts/
+
+              echo "✅ Hoàn tất tất cả bước enroll + register + copy cacerts"
+          volumeMounts:
+            - name: orgdata
+              mountPath: /organizations
+              subPath: organizations
+      volumes:
+        - name: orgdata
+          persistentVolumeClaim:
+            claimName: nfs-pvc

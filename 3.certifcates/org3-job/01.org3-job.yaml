@@ -1,0 +1,90 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: enroll-org3-peer-admin
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fabric-ca-client
+          image: hyperledger/fabric-ca:1.4.9
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -x
+
+              ORG_DIR=/organizations/peerOrganizations/org3.example.com
+              export FABRIC_CA_CLIENT_HOME=$ORG_DIR
+              mkdir -p $ORG_DIR
+
+              fabric-ca-client enroll -u https://admin:adminpw@ca-org3:9054 \
+                --caname ca-org3 \
+                --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+
+              cat <<EOF > $ORG_DIR/msp/config.yaml
+              NodeOUs:
+                Enable: true
+                ClientOUIdentifier:
+                  Certificate: cacerts/ca-org3-9054-ca-org3.pem
+                  OrganizationalUnitIdentifier: client
+                PeerOUIdentifier:
+                  Certificate: cacerts/ca-org3-9054-ca-org3.pem
+                  OrganizationalUnitIdentifier: peer
+                AdminOUIdentifier:
+                  Certificate: cacerts/ca-org3-9054-ca-org3.pem
+                  OrganizationalUnitIdentifier: admin
+                OrdererOUIdentifier:
+                  Certificate: cacerts/ca-org3-9054-ca-org3.pem
+                  OrganizationalUnitIdentifier: orderer
+              EOF
+
+              fabric-ca-client register --caname ca-org3 --id.name peer0 --id.secret peer0pw --id.type peer --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+              fabric-ca-client register --caname ca-org3 --id.name user1 --id.secret user1pw --id.type client --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+              fabric-ca-client register --caname ca-org3 --id.name org3admin --id.secret org3adminpw --id.type admin --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+
+              PEER_DIR=$ORG_DIR/peers/peer0.org3.example.com
+              fabric-ca-client enroll -u https://peer0:peer0pw@ca-org3:9054 --caname ca-org3 -M "$PEER_DIR/msp" \
+                --csr.hosts peer0.org3.example.com --csr.hosts peer0-org3 \
+                --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+
+              cp $ORG_DIR/msp/config.yaml "$PEER_DIR/msp/config.yaml"
+
+              fabric-ca-client enroll -u https://peer0:peer0pw@ca-org3:9054 --caname ca-org3 -M "$PEER_DIR/tls" \
+                --enrollment.profile tls \
+                --csr.hosts peer0.org3.example.com --csr.hosts peer0-org3 --csr.hosts ca-org3 --csr.hosts localhost \
+                --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+
+              cp $PEER_DIR/tls/tlscacerts/* $PEER_DIR/tls/ca.crt
+              cp $PEER_DIR/tls/signcerts/*  $PEER_DIR/tls/server.crt
+              cp $PEER_DIR/tls/keystore/*   $PEER_DIR/tls/server.key
+
+              mkdir -p $PEER_DIR/msp/tlscacerts
+              cp $PEER_DIR/tls/tlscacerts/* $PEER_DIR/msp/tlscacerts/tlsca.org3.example.com-cert.pem
+
+              mkdir -p $ORG_DIR/msp/tlscacerts
+              cp $PEER_DIR/tls/tlscacerts/* $ORG_DIR/msp/tlscacerts/ca.crt
+
+              mkdir -p $ORG_DIR/tlsca
+              cp $PEER_DIR/tls/tlscacerts/* $ORG_DIR/tlsca/tlsca.org3.example.com-cert.pem
+
+              mkdir -p $ORG_DIR/ca
+              cp $PEER_DIR/msp/cacerts/* $ORG_DIR/ca/ca.org3.example.com-cert.pem
+
+              fabric-ca-client enroll -u https://user1:user1pw@ca-org3:9054 --caname ca-org3 -M "$ORG_DIR/users/User1@org3.example.com/msp" --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+              cp $ORG_DIR/msp/config.yaml "$ORG_DIR/users/User1@org3.example.com/msp/config.yaml"
+
+              fabric-ca-client enroll -u https://org3admin:org3adminpw@ca-org3:9054 --caname ca-org3 -M "$ORG_DIR/users/Admin@org3.example.com/msp" --tls.certfiles "/organizations/fabric-ca/org3/tls-cert.pem"
+              cp $ORG_DIR/msp/config.yaml "$ORG_DIR/users/Admin@org3.example.com/msp/config.yaml"
+
+              { set +x; } 2>/dev/null
+          volumeMounts:
+            - name: fabricdata
+              mountPath: /organizations
+              subPath: organizations
+      volumes:
+        - name: fabricdata
+          persistentVolumeClaim:
+            claimName: nfs-pvc
