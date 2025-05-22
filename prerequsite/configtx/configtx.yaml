@@ -46,6 +46,10 @@ Organizations:
 
         OrdererEndpoints:
             - orderer:7050
+            - orderer2:7050
+            - orderer3:7050
+            - orderer4:7050
+            - orderer5:7050
 
     - &Org1
         # DefaultOrg defines the organization which is used in the sampleconfig

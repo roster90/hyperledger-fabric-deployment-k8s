@@ -18,4 +18,6 @@ chmod 777 organizations/ -R
 
 - chain code (8)
 
+- 10 ui : run ./scripts/ccp.sh
+
 
