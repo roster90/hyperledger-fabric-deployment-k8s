@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: explorer-ingress
+  annotations:
+    # nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - explorer.metafi.gg
+    secretName: explorer-hlf-tls
+  rules:
+    - host: explorer.metafi.gg
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: explorer
+                port:
+                  number: 8080
