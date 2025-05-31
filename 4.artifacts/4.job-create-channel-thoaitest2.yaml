@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-channel-thoaitest2
+spec:
+  template:
+    spec:
+      containers:
+        - name: channel-generator
+          image: hyperledger/fabric-tools:2.3
+          workingDir: /
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+
+              CHANNEL_NAME="thoaitest2"
+              export FABRIC_CFG_PATH=${PWD}/configtx
+
+              echo "📦 Tạo channel transaction từ profile Org1Org2Channel"
+
+              configtxgen -profile Org1Org2Channel \
+                -outputCreateChannelTx ./channel-artifacts/${CHANNEL_NAME}.tx \
+                -channelID ${CHANNEL_NAME}
+
+              if [ $? -ne 0 ]; then
+                echo "❌ Lỗi tạo channel transaction"
+                exit 1
+              fi
+
+              echo "📌 Tạo anchor peer cho Org1MSP và Org2MSP theo cùng profile"
+
+              for ORG in Org1MSP Org2MSP; do
+                configtxgen -profile Org1Org2Channel \
+                  -outputAnchorPeersUpdate ./channel-artifacts/${ORG}anchors.tx \
+                  -channelID ${CHANNEL_NAME} \
+                  -asOrg ${ORG}
+
+                if [ $? -ne 0 ]; then
+                  echo "❌ Lỗi tạo anchor peer cho $ORG"
+                  exit 1
+                fi
+              done
+
+              echo "✅ Hoàn tất tạo channel '${CHANNEL_NAME}' và anchor peer tx"
+          volumeMounts:
+            - mountPath: /organizations
+              name: fabricfiles
+              subPath: organizations
+            - mountPath: /configtx
+              name: fabricfiles
+              subPath: configtx
+            - mountPath: /channel-artifacts
+              name: fabricfiles
+              subPath: channel-artifacts
+      restartPolicy: Never
+      volumes:
+        - name: fabricfiles
+          persistentVolumeClaim:
+            claimName: nfs-pvc
